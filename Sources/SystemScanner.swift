@@ -267,8 +267,10 @@ enum SystemScanner {
             of: #"state\s*=\s*running"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
-        let disabledNeedle = "\"\(label)\" => true"
-        let disabled = disabledResult?.standardOutput.contains(disabledNeedle) == true
+        let disabled = isServiceDisabled(
+            label: label,
+            in: disabledResult?.standardOutput ?? ""
+        )
         let lastExitCode = firstInteger(
             matching: #"last exit code\s*=\s*(-?\d+)"#,
             in: serviceOutput
@@ -302,6 +304,19 @@ enum SystemScanner {
             return false
         }
         return URL(fileURLWithPath: String(executable)).lastPathComponent == "caffeinate"
+    }
+
+    static func isServiceDisabled(label: String, in output: String) -> Bool {
+        let escapedLabel = NSRegularExpression.escapedPattern(for: label)
+        let pattern = #"\""# + escapedLabel + #"\"\s*=>\s*(?:true|disabled)\b"#
+        guard let regex = try? NSRegularExpression(
+            pattern: pattern,
+            options: .caseInsensitive
+        ) else {
+            return false
+        }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        return regex.firstMatch(in: output, range: range) != nil
     }
 
     private static func userName(for uid: UInt32) -> String {

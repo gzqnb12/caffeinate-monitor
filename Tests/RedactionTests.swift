@@ -54,6 +54,36 @@ struct RedactionTests {
             "普通命令不应被修改"
         )
 
-        print("RedactionTests: \(cases.count + 1) 项通过")
+        let modernOutput = """
+            disabled services = {
+                "example.enabled" => enabled
+                "example.disabled" => disabled
+            }
+        """
+        precondition(
+            SystemScanner.isServiceDisabled(label: "example.disabled", in: modernOutput),
+            "应识别新版 launchctl 的 disabled 状态"
+        )
+        precondition(
+            !SystemScanner.isServiceDisabled(label: "example.enabled", in: modernOutput),
+            "不应把新版 launchctl 的 enabled 状态识别为停用"
+        )
+
+        let legacyOutput = """
+            disabled services = {
+                "example.old-disabled" => true
+                "example.old-enabled" => false
+            }
+        """
+        precondition(
+            SystemScanner.isServiceDisabled(label: "example.old-disabled", in: legacyOutput),
+            "应兼容旧版 launchctl 的 true 状态"
+        )
+        precondition(
+            !SystemScanner.isServiceDisabled(label: "example.old-enabled", in: legacyOutput),
+            "不应把旧版 launchctl 的 false 状态识别为停用"
+        )
+
+        print("Tests: \(cases.count + 5) 项通过")
     }
 }

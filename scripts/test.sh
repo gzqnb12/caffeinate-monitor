@@ -19,6 +19,7 @@ deployment_target="${machine_architecture}-apple-macosx13.0"
   -target "${deployment_target}" \
   -module-cache-path "${module_cache_dir}" \
   "${project_dir}/Sources/Models.swift" \
+  "${project_dir}/Sources/SystemScanner.swift" \
   "${project_dir}/Tests/RedactionTests.swift" \
   -o "${test_work_dir}/RedactionTests"
 

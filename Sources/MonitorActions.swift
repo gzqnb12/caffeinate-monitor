@@ -94,15 +94,35 @@ enum MonitorActions {
             "/bin/launchctl",
             ["disable", serviceDomain]
         )
-        try requireSuccess(disableResult, action: "停用任务失败")
+        if disableResult.status != 0 && !isDisabled(task.label, in: baseDomain) {
+            try requireSuccess(disableResult, action: "停用任务失败")
+        }
+
+        // `disable` persists the desired state; an unloaded service is already
+        // fully stopped. This also makes the operation safe to repeat.
+        guard isLoaded(serviceDomain) else { return }
 
         let bootoutResult = try ProcessRunner.run(
             "/bin/launchctl",
+            ["bootout", serviceDomain]
+        )
+
+        // On recent macOS versions launchctl can report EIO even though the
+        // service was removed successfully. Judge success by the final state.
+        if waitUntilUnloaded(serviceDomain) { return }
+
+        // Fall back to the plist form for launchd versions that do not accept
+        // the service target in this situation.
+        let pathBootoutResult = try ProcessRunner.run(
+            "/bin/launchctl",
             ["bootout", baseDomain, task.plistPath]
         )
-        if bootoutResult.status != 0 && bootoutResult.status != 3 {
-            try requireSuccess(bootoutResult, action: "卸载任务失败")
+        if waitUntilUnloaded(serviceDomain) { return }
+
+        if pathBootoutResult.status != 0 {
+            try requireSuccess(pathBootoutResult, action: "卸载任务失败")
         }
+        try requireSuccess(bootoutResult, action: "卸载任务失败")
     }
 
     private static func enableTask(_ task: CaffeinateLaunchTask) throws {
@@ -117,18 +137,18 @@ enum MonitorActions {
             "/bin/launchctl",
             ["enable", serviceDomain]
         )
-        try requireSuccess(enableResult, action: "启用任务失败")
+        if enableResult.status != 0 && isDisabled(task.label, in: baseDomain) {
+            try requireSuccess(enableResult, action: "启用任务失败")
+        }
 
-        let current = try ProcessRunner.run(
-            "/bin/launchctl",
-            ["print", serviceDomain]
-        )
-        if current.status != 0 {
+        if !isLoaded(serviceDomain) {
             let bootstrapResult = try ProcessRunner.run(
                 "/bin/launchctl",
                 ["bootstrap", baseDomain, task.plistPath]
             )
-            try requireSuccess(bootstrapResult, action: "加载任务失败")
+            if bootstrapResult.status != 0 && !isLoaded(serviceDomain) {
+                try requireSuccess(bootstrapResult, action: "加载任务失败")
+            }
         }
     }
 
@@ -176,5 +196,35 @@ enum MonitorActions {
             let suffix = detail.isEmpty ? "退出码 \(result.status)" : detail
             throw MonitorActionError.commandFailed("\(action)：\(suffix)")
         }
+    }
+
+    private static func isLoaded(_ serviceDomain: String) -> Bool {
+        guard let result = try? ProcessRunner.run(
+            "/bin/launchctl",
+            ["print", serviceDomain]
+        ) else {
+            return false
+        }
+        return result.status == 0
+    }
+
+    private static func isDisabled(_ label: String, in baseDomain: String) -> Bool {
+        guard let result = try? ProcessRunner.run(
+            "/bin/launchctl",
+            ["print-disabled", baseDomain]
+        ), result.status == 0 else {
+            return false
+        }
+        return SystemScanner.isServiceDisabled(label: label, in: result.standardOutput)
+    }
+
+    private static func waitUntilUnloaded(_ serviceDomain: String) -> Bool {
+        for attempt in 0..<4 {
+            if !isLoaded(serviceDomain) { return true }
+            if attempt < 3 {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+        }
+        return false
     }
 }
